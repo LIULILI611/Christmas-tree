@@ -19,10 +19,17 @@ import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tas
 // --- 动态生成照片列表 (top.jpg + 1.jpg 到 31.jpg) ---
 const TOTAL_NUMBERED_PHOTOS = 31;
 // 修改：将 top.jpg 加入到数组开头
+// const bodyPhotoPaths = [
+//   '/photos/top.jpg',
+//   ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`)
+// ];
+const BASE = import.meta.env.BASE_URL;
+
 const bodyPhotoPaths = [
-  '/photos/top.jpg',
-  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`)
+  `${BASE}photos/top.jpg`,
+  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `${BASE}photos/${i + 1}.jpg`)
 ];
+
 
 // --- 视觉配置 ---
 const CONFIG = {
@@ -560,7 +567,8 @@ export default function GrandTreeApp() {
 
         <audio
           ref={audioRef}
-          src="/music/Forever and Ever and Always.mp3"
+          //src="/music/Forever and Ever and Always.mp3"
+          src={`${import.meta.env.BASE_URL}music/bgm.mp3`}
           loop
           preload="auto"
         />
