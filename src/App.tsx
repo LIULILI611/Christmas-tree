@@ -571,6 +571,7 @@ export default function GrandTreeApp() {
           src={`${import.meta.env.BASE_URL}music/bgm.mp3`}
           loop
           preload="auto"
+          playsInline
         />
 
       <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
