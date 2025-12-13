@@ -44,8 +44,7 @@ const CONFIG = {
     //lights: ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'], // 彩灯
     lights: ['#f6f62cff', '#edf41eff', '#e3f23cff', '#FFFF00'],
     // 拍立得边框颜色池 (复古柔和色系)
-    //borders: ['#ffffffff', '#ffffffff', '#ffffffff', '#ffffffff', '#edf8edff', '#fcfcfcff', '#fffffeff'],
-    borders: ['#efdfc1ff', '#070706ff', '#cfcfeaff', '#FFB6C1', '#98FB98', '#87CEFA', '#FFDAB9'],
+    borders: ['#c9ba9d', '#c7c7ab', '#ccccdbff', '#d7c3c6ff', '#b9cfb9', '#b3c3cdff', '#cfb9a5ff'],
     
     // 圣诞元素颜色
     giftColors: ['#D32F2F', '#FFD700', '#1976D2', '#2E7D32'],
@@ -210,7 +209,16 @@ const PhotoOrnaments = ({ state, peekIndex }: { state: 'CHAOS' | 'FORMED', peekI
 
     if (peekBorderMeshRef.current) {
       const mat = peekBorderMeshRef.current.material as THREE.MeshBasicMaterial;
-      mat.color.set(data[peekIndex]?.borderColor ?? '#FFFAF0');
+      if (peekBorderMeshRef.current) {
+      const mat = peekBorderMeshRef.current.material as THREE.MeshBasicMaterial;
+
+      const raw = data[peekIndex]?.borderColor ?? '#FFFAF0';
+      const border = raw.length === 9 ? `#${raw.slice(1, 7)}` : raw; // ✅ 去掉末尾 alpha(ff)
+
+      mat.color.set(border);
+      mat.needsUpdate = true;
+}
+
     }
   }, [peekIndex, textures, data]);
 
@@ -349,7 +357,7 @@ useFrame((stateObj, delta) => {
             {/* 相框 */}
             <mesh ref={peekBorderMeshRef} geometry={borderGeometry} position={[0, -0.15, 0]}>
               <meshBasicMaterial
-                color={'#FFFAF0'}
+                color={'#f8f4ecff'}
                 transparent
                 opacity={0}
                 depthTest={false}
@@ -578,11 +586,15 @@ const Experience = ({ sceneState, rotationSpeed, peekIndex }: { sceneState: 'CHA
 const GestureController = ({ onGesture, onMove, onStatus, onPinchStart, onPinchEnd, debugMode }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastStatusRef = useRef("");
+
 
   useEffect(() => {
     let gestureRecognizer: GestureRecognizer;
     let requestRef: number;
     let isPinching = false;
+
+
 
     const setup = async () => {
       onStatus("DOWNLOADING AI...");
@@ -614,71 +626,95 @@ const GestureController = ({ onGesture, onMove, onStatus, onPinchStart, onPinchE
     };
 
     const predictWebcam = () => {
+      let detectedLabel: string | null = null;
+      let hasHand = false;
+
       if (gestureRecognizer && videoRef.current && canvasRef.current) {
         if (videoRef.current.videoWidth > 0) {
-            const results = gestureRecognizer.recognizeForVideo(videoRef.current, Date.now());
-            const ctx = canvasRef.current.getContext("2d");
-            if (ctx && debugMode) {
-                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-                canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight;
-                if (results.landmarks) for (const landmarks of results.landmarks) {
-                        const drawingUtils = new DrawingUtils(ctx);
-                        drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#FFD700", lineWidth: 2 });
-                        drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", lineWidth: 1 });
-                }
-            } else if (ctx && !debugMode) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+          const results = gestureRecognizer.recognizeForVideo(videoRef.current, Date.now());
 
-            // ✅ 1) pinch + 旋转速度：只要 landmarks 有就执行（不依赖 gestures）
-            if (results.landmarks && results.landmarks.length > 0) {
-              const hand = results.landmarks[0];
+          // debug画骨架（保留你原来的）
+          const ctx = canvasRef.current.getContext("2d");
+          if (ctx && debugMode) {
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+            canvasRef.current.width = videoRef.current.videoWidth;
+            canvasRef.current.height = videoRef.current.videoHeight;
 
-              const dx = hand[4].x - hand[8].x;
-              const dy = hand[4].y - hand[8].y;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-
-              const PINCH_START = 0.055;
-              const PINCH_END = 0.070;
-
-              if (!isPinching && dist < PINCH_START) {
-                isPinching = true;
-                onPinchStart?.();
-                if (debugMode) onStatus(`PINCH START dist=${dist.toFixed(3)}`);
-              } else if (isPinching && dist > PINCH_END) {
-                isPinching = false;
-                onPinchEnd?.();
-                if (debugMode) onStatus(`PINCH END dist=${dist.toFixed(3)}`);
+            if (results.landmarks) {
+              const drawingUtils = new DrawingUtils(ctx);
+              for (const landmarks of results.landmarks) {
+                drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#FFD700", lineWidth: 2 });
+                drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", lineWidth: 1 });
               }
+            }
+          } else if (ctx && !debugMode) {
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+          }
 
-              // 捏合时暂停旋转
-              if (!isPinching) {
-                const speed = (0.5 - hand[0].x) * 0.15;
-                onMove(Math.abs(speed) > 0.01 ? speed : 0);
-              } else {
-                onMove(0);
-              }
+          // ---------- 1) 先算 pinch（只要有 landmarks 就算） ----------
+          if (results.landmarks && results.landmarks.length > 0) {
+            hasHand = true;
+            const hand = results.landmarks[0];
+
+            const dx = hand[4].x - hand[8].x;
+            const dy = hand[4].y - hand[8].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            const PINCH_START = 0.055;
+            const PINCH_END = 0.070;
+
+            // 只在边界触发 start/end（逻辑保留，但不显示 pinch_release）
+            if (!isPinching && dist < PINCH_START) {
+              isPinching = true;
+              onPinchStart?.();
+            } else if (isPinching && dist > PINCH_END) {
+              isPinching = false;
+              onPinchEnd?.();
+            }
+
+            // ✅ 关键：只要在捏，每一帧都显示 PINCH
+            if (isPinching) detectedLabel = `PINCH (${dist.toFixed(3)})`;
+
+            // 捏合时暂停旋转
+            if (!isPinching) {
+              const speed = (0.5 - hand[0].x) * 0.15;
+              onMove(Math.abs(speed) > 0.01 ? speed : 0);
             } else {
               onMove(0);
-              if (debugMode) onStatus("AI READY: NO HAND");
             }
+          } else {
+            onMove(0);
+          }
 
-            // ✅ 2) 张手/握拳：手势分类有的话再执行
-            if (results.gestures && results.gestures.length > 0) {
-              const name = results.gestures[0][0].categoryName;
-              const score = results.gestures[0][0].score;
+          // ---------- 2) 再算 gestures（只要分类有就算） ----------
+          if (results.gestures && results.gestures.length > 0) {
+            const name = results.gestures[0][0].categoryName;
+            const score = results.gestures[0][0].score;
 
-              if (score > 0.4) {
-                if (name === "Open_Palm") onGesture("CHAOS");
-                if (name === "Closed_Fist") onGesture("FORMED");
-                if (debugMode) onStatus(`DETECTED: ${name} (${score.toFixed(2)})`);
-              }
-            } else {
-              if (debugMode) onStatus("AI READY: NO GESTURE");
+            if (score > 0.4) {
+              if (name === "Open_Palm") onGesture("CHAOS");
+              if (name === "Closed_Fist") onGesture("FORMED");
+
+              // ✅ 优先级：如果正在 pinch，就别用 gesture 覆盖（否则又“闪”）
+              if (!detectedLabel) detectedLabel = `${name} (${score.toFixed(2)})`;
             }
+          }
 
+          // ---------- 3) 统一在最后决定 statusText（只发一次） ----------
+          let statusText = "AI READY: SHOW HAND";
+          if (!hasHand) statusText = "AI READY: NO HAND";
+          if (detectedLabel) statusText = `DETECTED: ${detectedLabel}`;
+
+          if (statusText !== lastStatusRef.current) {
+            onStatus?.(statusText);
+            lastStatusRef.current = statusText;
+          }
         }
+
         requestRef = requestAnimationFrame(predictWebcam);
       }
     };
+
     setup();
     return () => cancelAnimationFrame(requestRef);
   }, [onGesture, onMove, onStatus, debugMode]);
