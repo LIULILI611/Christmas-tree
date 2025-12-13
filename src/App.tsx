@@ -45,7 +45,7 @@ const CONFIG = {
     lights: ['#f6f62cff', '#edf41eff', '#e3f23cff', '#FFFF00'],
     // 拍立得边框颜色池 (复古柔和色系)
     //borders: ['#ffffffff', '#ffffffff', '#ffffffff', '#ffffffff', '#edf8edff', '#fcfcfcff', '#fffffeff'],
-    borders: ['#FFFAF0', '#070706ff', '#E6E6FA', '#FFB6C1', '#98FB98', '#87CEFA', '#FFDAB9'],
+    borders: ['#efdfc1ff', '#070706ff', '#cfcfeaff', '#FFB6C1', '#98FB98', '#87CEFA', '#FFDAB9'],
     
     // 圣诞元素颜色
     giftColors: ['#D32F2F', '#FFD700', '#1976D2', '#2E7D32'],
@@ -113,6 +113,8 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     }
     return { positions, targetPositions, randoms };
   }, []);
+
+
   useFrame((rootState, delta) => {
     if (materialRef.current) {
       materialRef.current.uTime = rootState.clock.elapsedTime;
@@ -134,10 +136,27 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
-const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+//const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const PhotoOrnaments = ({ state, peekIndex }: { state: 'CHAOS' | 'FORMED', peekIndex: number | null }) => {
   const textures = useTexture(CONFIG.photos.body);
   const count = CONFIG.counts.ornaments;
   const groupRef = useRef<THREE.Group>(null);
+
+  // ✅ 记录每一张拍立得 group 的引用（为了拿到它在 3D 世界里的位置）
+  const itemRefs = useRef<(THREE.Group | null)[]>([]);
+
+  // ✅ “捏出来查看”的复制品拍立得（照片 + 相框）
+  const peekGroupRef = useRef<THREE.Group>(null);
+  const peekPhotoMeshRef = useRef<THREE.Mesh>(null);
+  const peekBorderMeshRef = useRef<THREE.Mesh>(null);
+
+
+  const peekFromPos = useRef(new THREE.Vector3());
+  const peekPos = useRef(new THREE.Vector3());
+  const peekScale = useRef(0.05);
+  const peekOpacity = useRef(0);
+
+
 
   const borderGeometry = useMemo(() => new THREE.PlaneGeometry(1.4, 1.6), []);
   const photoGeometry = useMemo(() => new THREE.PlaneGeometry(1.2, 1.2), []);
@@ -176,39 +195,112 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     });
   }, [textures, count]);
 
-  useFrame((stateObj, delta) => {
-    if (!groupRef.current) return;
-    const isFormed = state === 'FORMED';
-    const time = stateObj.clock.elapsedTime;
+  //当 pinch 开始（peekIndex 变成某个数字）时，记录“起点位置”
+  useEffect(() => {
+    if (peekIndex == null) return;
 
-    groupRef.current.children.forEach((group, i) => {
-      const objData = data[i];
-      const target = isFormed ? objData.targetPos : objData.chaosPos;
+    // ✅ 把贴图“强行”设置到复制品照片材质上（保证不会空白）
+    const tex = textures[data[peekIndex]?.textureIndex ?? 0];
 
-      objData.currentPos.lerp(target, delta * (isFormed ? 0.8 * objData.weight : 0.5));
-      group.position.copy(objData.currentPos);
+    if (peekPhotoMeshRef.current) {
+      const mat = peekPhotoMeshRef.current.material as THREE.MeshBasicMaterial;
+      mat.map = tex;
+      mat.needsUpdate = true;
+    }
 
-      if (isFormed) {
-         const targetLookPos = new THREE.Vector3(group.position.x * 2, group.position.y + 0.5, group.position.z * 2);
-         group.lookAt(targetLookPos);
+    if (peekBorderMeshRef.current) {
+      const mat = peekBorderMeshRef.current.material as THREE.MeshBasicMaterial;
+      mat.color.set(data[peekIndex]?.borderColor ?? '#FFFAF0');
+    }
+  }, [peekIndex, textures, data]);
 
-         const wobbleX = Math.sin(time * objData.wobbleSpeed + objData.wobbleOffset) * 0.05;
-         const wobbleZ = Math.cos(time * objData.wobbleSpeed * 0.8 + objData.wobbleOffset) * 0.05;
-         group.rotation.x += wobbleX;
-         group.rotation.z += wobbleZ;
 
-      } else {
-         group.rotation.x += delta * objData.rotationSpeed.x;
-         group.rotation.y += delta * objData.rotationSpeed.y;
-         group.rotation.z += delta * objData.rotationSpeed.z;
-      }
-    });
-  });
+
+
+useFrame((stateObj, delta) => {
+  if (!groupRef.current) return;
+
+  const isFormed = state === 'FORMED';
+  const time = stateObj.clock.elapsedTime;
+
+  // ✅ 只遍历真正的 ornament（前 data.length 个）
+  for (let i = 0; i < data.length; i++) {
+    const group = groupRef.current.children[i] as THREE.Group;
+    const objData = data[i];
+    if (!group || !objData) continue;
+
+    const target = isFormed ? objData.targetPos : objData.chaosPos;
+    objData.currentPos.lerp(target, delta * (isFormed ? 0.8 * objData.weight : 0.5));
+    group.position.copy(objData.currentPos);
+
+    if (isFormed) {
+      const targetLookPos = new THREE.Vector3(group.position.x * 2, group.position.y + 0.5, group.position.z * 2);
+      group.lookAt(targetLookPos);
+
+      const wobbleX = Math.sin(time * objData.wobbleSpeed + objData.wobbleOffset) * 0.05;
+      const wobbleZ = Math.cos(time * objData.wobbleSpeed * 0.8 + objData.wobbleOffset) * 0.05;
+      group.rotation.x += wobbleX;
+      group.rotation.z += wobbleZ;
+    } else {
+      group.rotation.x += delta * objData.rotationSpeed.x;
+      group.rotation.y += delta * objData.rotationSpeed.y;
+      group.rotation.z += delta * objData.rotationSpeed.z;
+    }
+  }
+
+  // ✅ 复制品拍立得动画：从树上位置 -> 飞到屏幕中心
+  if (peekGroupRef.current && peekGroupRef.current.parent) {
+    const active = peekIndex != null;
+
+    const cam = stateObj.camera;
+
+    // ✅ 相机“正中心”的世界坐标点：相机坐标(0,0,-25)转到世界坐标
+    const targetWorld = new THREE.Vector3(0, 0, -25).applyMatrix4(cam.matrixWorld);
+
+    // ✅ 再把世界坐标转成当前父级的局部坐标
+    const parent = peekGroupRef.current.parent;
+    const targetLocal = parent.worldToLocal(targetWorld.clone());
+
+    const targetScale = active ? 10 : 0.05;
+    const targetOpacity = active ? 1 : 0;
+
+    peekScale.current = MathUtils.damp(peekScale.current, targetScale, 6, delta);
+    peekOpacity.current = MathUtils.damp(peekOpacity.current, targetOpacity, 6, delta);
+
+    const posTarget = active ? targetLocal : peekFromPos.current;
+    peekPos.current.lerp(posTarget, 1 - Math.exp(-delta * 6));
+
+    peekGroupRef.current.position.copy(peekPos.current);
+    peekGroupRef.current.scale.setScalar(peekScale.current);
+
+    // ✅ 始终面对相机（保持“正对屏幕”）
+    peekGroupRef.current.quaternion.copy(cam.quaternion);
+
+    // ✅ 控制透明度（照片+边框一起淡入淡出）
+    if (peekPhotoMeshRef.current) {
+      (peekPhotoMeshRef.current.material as THREE.MeshBasicMaterial).opacity = peekOpacity.current;
+    }
+    if (peekBorderMeshRef.current) {
+      (peekBorderMeshRef.current.material as THREE.MeshBasicMaterial).opacity = peekOpacity.current;
+    }
+
+  }
+
+
+});
+
 
   return (
     <group ref={groupRef}>
       {data.map((obj, i) => (
-        <group key={i} scale={[obj.scale, obj.scale, obj.scale]} rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}>
+        
+        <group
+          key={i}
+          ref={(el) => { itemRefs.current[i] = el; }}
+          scale={[obj.scale, obj.scale, obj.scale]}
+          rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}
+        >
+
           {/* 正面 */}
           <group position={[0, 0, 0.015]}>
             <mesh geometry={photoGeometry}>
@@ -239,6 +331,36 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
           </group>
         </group>
       ))}
+
+          {/* ✅ Pinch: 从树里“捏出来”的拍立得（照片+相框） */}
+          <group ref={peekGroupRef} renderOrder={999}>
+            {/* 照片 */}
+            <mesh ref={peekPhotoMeshRef} geometry={photoGeometry} position={[0, 0, 0.02]}>
+              <meshBasicMaterial
+                transparent
+                opacity={0}
+                depthTest={false}
+                depthWrite={false}
+                toneMapped={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+
+            {/* 相框 */}
+            <mesh ref={peekBorderMeshRef} geometry={borderGeometry} position={[0, -0.15, 0]}>
+              <meshBasicMaterial
+                color={'#FFFAF0'}
+                transparent
+                opacity={0}
+                depthTest={false}
+                depthWrite={false}
+                toneMapped={false}
+              />
+            </mesh>
+          </group>
+
+
+
     </group>
   );
 };
@@ -409,7 +531,7 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Main Scene Experience ---
-const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number }) => {
+const Experience = ({ sceneState, rotationSpeed, peekIndex }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number, peekIndex: number | null }) => {
   const controlsRef = useRef<any>(null);
   useFrame(() => {
     if (controlsRef.current) {
@@ -420,8 +542,8 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
 
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, 8, 60]} fov={45} />
-      <OrbitControls ref={controlsRef} enablePan={false} enableZoom={true} minDistance={30} maxDistance={120} autoRotate={rotationSpeed === 0 && sceneState === 'FORMED'} autoRotateSpeed={0.3} maxPolarAngle={Math.PI / 1.7} />
+      <PerspectiveCamera makeDefault position={[0, 5, 60]} fov={45} /> //树的角度（也就是相机位置）
+      <OrbitControls ref={controlsRef} enablePan={false} enableZoom={true} minDistance={30} maxDistance={120} autoRotate={rotationSpeed === 0 && sceneState === 'FORMED'} autoRotateSpeed={0.7} maxPolarAngle={Math.PI / 1.7} />
 
       <color attach="background" args={['#000300']} />
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
@@ -432,15 +554,15 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
       <pointLight position={[-30, 10, -30]} intensity={50} color={CONFIG.colors.gold} />
       <pointLight position={[0, -20, 10]} intensity={30} color="#ffffff" />
 
-      <group position={[0, -6, 0]}>
+      <group position={[0, -5, 0]}>      //树的位置
         <Foliage state={sceneState} />
         <Suspense fallback={null}>
-           <PhotoOrnaments state={sceneState} />
+           <PhotoOrnaments state={sceneState} peekIndex={peekIndex} />
            <ChristmasElements state={sceneState} />
            <FairyLights state={sceneState} />
            <TopStar state={sceneState} />
         </Suspense>
-        <Sparkles count={600} scale={50} size={8} speed={0.4} opacity={0.4} color={CONFIG.colors.silver} />
+        <Sparkles count={800} scale={50} size={8} speed={0.4} opacity={0.4} color={CONFIG.colors.silver} />
       </group>
 
       <EffectComposer>
@@ -453,13 +575,14 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
 
 // --- Gesture Controller ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
+const GestureController = ({ onGesture, onMove, onStatus, onPinchStart, onPinchEnd, debugMode }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     let gestureRecognizer: GestureRecognizer;
     let requestRef: number;
+    let isPinching = false;
 
     const setup = async () => {
       onStatus("DOWNLOADING AI...");
@@ -505,17 +628,53 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
                 }
             } else if (ctx && !debugMode) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-            if (results.gestures.length > 0) {
-              const name = results.gestures[0][0].categoryName; const score = results.gestures[0][0].score;
-              if (score > 0.4) {
-                 if (name === "Open_Palm") onGesture("CHAOS"); if (name === "Closed_Fist") onGesture("FORMED");
-                 if (debugMode) onStatus(`DETECTED: ${name}`);
+            // ✅ 1) pinch + 旋转速度：只要 landmarks 有就执行（不依赖 gestures）
+            if (results.landmarks && results.landmarks.length > 0) {
+              const hand = results.landmarks[0];
+
+              const dx = hand[4].x - hand[8].x;
+              const dy = hand[4].y - hand[8].y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              const PINCH_START = 0.055;
+              const PINCH_END = 0.070;
+
+              if (!isPinching && dist < PINCH_START) {
+                isPinching = true;
+                onPinchStart?.();
+                if (debugMode) onStatus(`PINCH START dist=${dist.toFixed(3)}`);
+              } else if (isPinching && dist > PINCH_END) {
+                isPinching = false;
+                onPinchEnd?.();
+                if (debugMode) onStatus(`PINCH END dist=${dist.toFixed(3)}`);
               }
-              if (results.landmarks.length > 0) {
-                const speed = (0.5 - results.landmarks[0][0].x) * 0.15;
+
+              // 捏合时暂停旋转
+              if (!isPinching) {
+                const speed = (0.5 - hand[0].x) * 0.15;
                 onMove(Math.abs(speed) > 0.01 ? speed : 0);
+              } else {
+                onMove(0);
               }
-            } else { onMove(0); if (debugMode) onStatus("AI READY: NO HAND"); }
+            } else {
+              onMove(0);
+              if (debugMode) onStatus("AI READY: NO HAND");
+            }
+
+            // ✅ 2) 张手/握拳：手势分类有的话再执行
+            if (results.gestures && results.gestures.length > 0) {
+              const name = results.gestures[0][0].categoryName;
+              const score = results.gestures[0][0].score;
+
+              if (score > 0.4) {
+                if (name === "Open_Palm") onGesture("CHAOS");
+                if (name === "Closed_Fist") onGesture("FORMED");
+                if (debugMode) onStatus(`DETECTED: ${name} (${score.toFixed(2)})`);
+              }
+            } else {
+              if (debugMode) onStatus("AI READY: NO GESTURE");
+            }
+
         }
         requestRef = requestAnimationFrame(predictWebcam);
       }
@@ -532,12 +691,31 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
   );
 };
 
+
 // --- App Entry ---
 export default function GrandTreeApp() {
   const [sceneState, setSceneState] = useState<'CHAOS' | 'FORMED'>('CHAOS');
   const [rotationSpeed, setRotationSpeed] = useState(0);
   const [aiStatus, setAiStatus] = useState("INITIALIZING...");
   const [debugMode, setDebugMode] = useState(false);
+
+  //添加手势
+  const [peekIndex, setPeekIndex] = useState<number | null>(null);
+  const prevRotationRef = useRef(0);
+
+    const handlePinchStart = () => {
+      if (sceneState !== 'CHAOS') return;
+      const i = Math.floor(Math.random() * CONFIG.counts.ornaments);
+      setPeekIndex(i);
+
+      prevRotationRef.current = rotationSpeed;
+      setRotationSpeed(0);
+    };
+    const handlePinchEnd = () => {
+      setPeekIndex(null);
+      setRotationSpeed(prevRotationRef.current);
+    };
+
 
   //音乐相关
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -561,7 +739,7 @@ export default function GrandTreeApp() {
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
         <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
+            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} peekIndex={peekIndex} />
         </Canvas>
       </div>
 
@@ -574,7 +752,14 @@ export default function GrandTreeApp() {
           playsInline
         />
 
-      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
+      <GestureController
+        onGesture={setSceneState}
+        onMove={setRotationSpeed}
+        onStatus={setAiStatus}
+        onPinchStart={handlePinchStart}
+        onPinchEnd={handlePinchEnd}
+        debugMode={debugMode}
+      />
 
       {/* UI - Stats */}
       <div style={{ position: 'absolute', bottom: '30px', left: '40px', color: '#888', zIndex: 10, fontFamily: 'sans-serif', userSelect: 'none' }}>
@@ -637,7 +822,7 @@ export default function GrandTreeApp() {
           textShadow: '0 0 20px rgba(255,215,0,0.25)',
         }}
       >
-        送给郁雁夫❤
+        送给郁雁夫♥
       </div>
 
 
