@@ -198,7 +198,7 @@ const PhotoOrnaments = ({ state, peekIndex }: { state: 'CHAOS' | 'FORMED', peekI
   useEffect(() => {
     if (peekIndex == null) return;
 
-    // ✅ 把贴图“强行”设置到复制品照片材质上（保证不会空白）
+    // 照片贴图
     const tex = textures[data[peekIndex]?.textureIndex ?? 0];
 
     if (peekPhotoMeshRef.current) {
@@ -207,20 +207,18 @@ const PhotoOrnaments = ({ state, peekIndex }: { state: 'CHAOS' | 'FORMED', peekI
       mat.needsUpdate = true;
     }
 
+    // 相框颜色
     if (peekBorderMeshRef.current) {
-      const mat = peekBorderMeshRef.current.material as THREE.MeshBasicMaterial;
-      if (peekBorderMeshRef.current) {
       const mat = peekBorderMeshRef.current.material as THREE.MeshBasicMaterial;
 
       const raw = data[peekIndex]?.borderColor ?? '#FFFAF0';
-      const border = raw.length === 9 ? `#${raw.slice(1, 7)}` : raw; // ✅ 去掉末尾 alpha(ff)
+      const border = raw.length === 9 ? `#${raw.slice(1, 7)}` : raw;
 
       mat.color.set(border);
       mat.needsUpdate = true;
-}
-
     }
   }, [peekIndex, textures, data]);
+
 
 
 
